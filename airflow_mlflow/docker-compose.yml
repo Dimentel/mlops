@@ -1,84 +1,82 @@
-x-airflow-common:
-  &airflow-common
-  build: .
-  environment:
-    &airflow-common-env
-    AIRFLOW__CORE__EXECUTOR: LocalExecutor
-    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
-    AIRFLOW__CORE__FERNET_KEY: ''
-    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: 'true'
-    AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
-    AIRFLOW__API__AUTH_BACKENDS: 'airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session'
-    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: 'true'
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: Dockerfile
+  environment: &airflow-common-env
+    # Airflow
+    AIRFLOW__CORE__EXECUTOR: ${AIRFLOW__CORE__EXECUTOR:-LocalExecutor}
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-airflow}:${POSTGRES_PASSWORD:-airflow}@postgres/${POSTGRES_DB:-airflow}
+    AIRFLOW__CORE__FERNET_KEY: ${AIRFLOW__CORE__FERNET_KEY}
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: ${AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION:-true}
+    AIRFLOW__CORE__LOAD_EXAMPLES: ${AIRFLOW__CORE__LOAD_EXAMPLES:-false}
+    AIRFLOW__CORE__DAGS_FOLDER: ${AIRFLOW__CORE__DAGS_FOLDER:-/opt/airflow/dags}
+    AIRFLOW__API__AUTH_BACKENDS: ${AIRFLOW__API__AUTH_BACKENDS:-airflow.api.auth.backend.basic_auth,airflow.api.auth.backend.session}
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: ${AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK:-true}
+    
+    # AWS/S3
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+    
+    # Pip
     _PIP_ADDITIONAL_REQUIREMENTS: ${_PIP_ADDITIONAL_REQUIREMENTS:-}
-  volumes:
+    
+    # Paths
+    # PYTHONPATH: /opt/airflow  # Раскомментировать если понадобятся кастомные модули (подпапки dags, plugins и т.д.)
+
+  volumes: &airflow-common-volumes
     - ${AIRFLOW_PROJ_DIR:-.}/dags:/opt/airflow/dags
     - ${AIRFLOW_PROJ_DIR:-.}/logs:/opt/airflow/logs
     - ${AIRFLOW_PROJ_DIR:-.}/config:/opt/airflow/config
     - ${AIRFLOW_PROJ_DIR:-.}/plugins:/opt/airflow/plugins
-  user: "${AIRFLOW_UID:-50000}:0"
-  depends_on:
-    &airflow-common-depends-on
+
+  user: "${AIRFLOW_UID:-1000}:${AIRFLOW_GID:-0}"
+  depends_on: &airflow-common-depends-on
     postgres:
       condition: service_healthy
+
+x-jupyter-common: &jupyter-common
+  image: jupyter/datascience-notebook:notebook-6.5.4
+  environment: &jupyter-common-env
+    MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI}
+    AWS_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+    AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+    AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+    AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+    JUPYTER_WORK_DIR: ${JUPYTER_WORK_DIR}
+    # Отключаем аутентификацию
+    JUPYTER_TOKEN: ${JUPYTER_TOKEN}
+    # Дополнительные настройки
+    JUPYTER_ENABLE_LAB: "yes"
+  volumes: &jupyter-common-volumes
+    - ./jupyter-data:${JUPYTER_WORK_DIR}
+    - ./dags:/home/jovyan/dags
+  user: "1000:100"  # jovyan user for Windows compatibility
 
 services:
   postgres:
     image: postgres:13
     environment:
-      POSTGRES_USER: airflow
-      POSTGRES_PASSWORD: airflow
-      POSTGRES_DB: airflow
+      POSTGRES_USER: ${POSTGRES_USER:-airflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-airflow}
+      POSTGRES_DB: ${POSTGRES_DB:-airflow}
     volumes:
       - postgres-db-volume:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "airflow"]
+      test: [ "CMD", "pg_isready", "-U", "airflow" ]
       interval: 10s
       retries: 5
       start_period: 5s
-    restart: always
-
-  airflow-webserver:
-    <<: *airflow-common
-    command: webserver
-    ports:
-      - "8080:8080"
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: always
-    depends_on:
-      <<: *airflow-common-depends-on
-      airflow-init:
-        condition: service_completed_successfully
-     
-
-  airflow-scheduler:
-    <<: *airflow-common
-    command: scheduler
-    healthcheck:
-      test: ["CMD", "curl", "--fail", "http://localhost:8974/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 30s
-    restart: always
-    depends_on:
-      <<: *airflow-common-depends-on
-      airflow-init:
-        condition: service_completed_successfully
-
+    restart: unless-stopped
 
   airflow-init:
     <<: *airflow-common
     entrypoint: /bin/bash
-    # yamllint disable rule:line-length
     command:
+      # yamllint disable rule:line-length
       - -c
       - |
+        echo "Checking AIRFLOW_UID..."
         if [[ -z "${AIRFLOW_UID}" ]]; then
           echo
           echo -e "\033[1;33mWARNING!!!: AIRFLOW_UID not set!\e[0m"
@@ -88,6 +86,7 @@ services:
           echo "    See: https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#setting-the-right-airflow-user"
           echo
         fi
+        echo 'Checking resources...'
         one_meg=1048576
         mem_available=$$(($$(getconf _PHYS_PAGES) * $$(getconf PAGE_SIZE) / one_meg))
         cpus_available=$$(grep -cE 'cpu[0-9]+' /proc/stat)
@@ -121,6 +120,13 @@ services:
           echo "   https://airflow.apache.org/docs/apache-airflow/stable/howto/docker-compose/index.html#before-you-begin"
           echo
         fi
+        echo 'Waiting for PostgreSQL...'
+        until pg_isready -h postgres -U airflow -d airflow; do
+          sleep 2
+        done
+        echo 'Initializing Airflow...'
+        airflow db migrate
+        echo 'User creation handled by Airflow via environment variables'
         mkdir -p /sources/logs /sources/dags /sources/plugins
         chown -R "${AIRFLOW_UID}:0" /sources/{logs,dags,plugins}
         exec /entrypoint airflow version
@@ -129,59 +135,118 @@ services:
       <<: *airflow-common-env
       _AIRFLOW_DB_MIGRATE: 'true'
       _AIRFLOW_WWW_USER_CREATE: 'true'
-      _AIRFLOW_WWW_USER_USERNAME: ${_AIRFLOW_WWW_USER_USERNAME:-airflow}
-      _AIRFLOW_WWW_USER_PASSWORD: ${_AIRFLOW_WWW_USER_PASSWORD:-airflow}
-      _PIP_ADDITIONAL_REQUIREMENTS: ''
-    user: "0:0"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_ADMIN_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_ADMIN_PASSWORD:-admin}
+      _AIRFLOW_WWW_USER_EMAIL: ${AIRFLOW_ADMIN_EMAIL:-admin@example.com}
+    # PATH: /home/airflow/.local/bin:/opt/airflow/bin:/usr/local/bin:/usr/bin:/bin у нас уже правильный PATH в образе
+    user: "0:0"  # Run as root for initialization
     volumes:
       - ${AIRFLOW_PROJ_DIR:-.}:/sources
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-webserver:
+    <<: *airflow-common
+    command: webserver
+    ports:
+      - "8055:8080"
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8080/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    <<: *airflow-common
+    command: scheduler
+    healthcheck:
+      test: [ "CMD", "curl", "--fail", "http://localhost:8974/health" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    depends_on:
+      <<: *airflow-common-depends-on
+      airflow-init:
+        condition: service_completed_successfully
 
   mlflow-service:
     image: ghcr.io/mlflow/mlflow:v2.15.1
     environment:
-      MLFLOW_S3_ENDPOINT_URL: https://storage.yandexcloud.net
-      AWS_ACCESS_KEY_ID: # YOUR KEY HERE
-      AWS_SECRET_ACCESS_KEY:# YOUR KEY HERE
-      AWS_DEFAULT_REGION: ru-central1
+      MLFLOW_S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
+    # явно указываем порт, чтобы не слушать случайно порт 8080
     command:
       - bash
       - -c
       - |
         pip install boto3 --quiet
         mlflow server --host 0.0.0.0 \
-            --default-artifact-root s3://YOURBUCKET/mlflow --serve-artifacts
+          --port 5000 \
+          --backend-store-uri sqlite:///mlflow.db \
+          --default-artifact-root s3://${MLFLOW_BUCKET}/mlflow \
+          --serve-artifacts
     expose:
-      - "5000"
+      - "5000"     # ← можно не указывать (уже есть ports) Если только для контейнеров, то указываем только этот порт
     ports:
-      - "5050:5000"
+      - "5055:5000"
     volumes:
       - mlflow-data:/mlflow
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:5000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
 
   jupyter:
-    image: jupyter/datascience-notebook:notebook-6.5.4
+    <<: *jupyter-common
     expose:
       - "8888"
     ports:
-      - "8888:8888"
-    volumes:
-      - ./jupyter-data:/home/jovyan/
-      - ./dags:/home/jovyan/dags
-    environment:
-      MLFLOW_TRACKING_URI: http://mlflow-service:5000
-      AWS_ENDPOINT_URL: https://storage.yandexcloud.net
-      AWS_ACCESS_KEY_ID: # YOUR KEY HERE 
-      AWS_SECRET_ACCESS_KEY: # YOUR KEY HERE 
-      AWS_DEFAULT_REGION: ru-central1
-    depends_on:
-      - mlflow-service
+      - "8855:8888"
     command:
       - bash
       - -c
       - |
         pip install mlflow==2.15.1 --quiet
         pip install boto3 --quiet
-        start-notebook.sh --NotebookApp.token=''
+        cat > /home/jovyan/ACCESS.md << EOF
+        # Jupyter Lab Access
+        - **URL**: http://localhost:8855/lab
+        - **Token**: ${JUPYTER_TOKEN}
+        - **Full URL**: http://localhost:8855/lab?token=${JUPYTER_TOKEN}
+        EOF
+        /usr/local/bin/start-notebook.sh
+    healthcheck:
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8888/lab')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 90s
+    restart: unless-stopped
+    depends_on:
+      mlflow-service:
+        condition: service_healthy
 
 volumes:
   postgres-db-volume:
+    driver: local
   mlflow-data:
+    driver: local
+
+networks:
+  default:
+    name: airflow-mlflow-network
+    driver: bridge

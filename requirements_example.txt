@@ -6,6 +6,6 @@ flask<2.3
 click<9
 sqlalchemy<2
 boto3==1.34.90
-pandas<2.2
+pandas==2.2.2
 psycopg2-binary==2.9.9
 scikit-learn==1.5.1

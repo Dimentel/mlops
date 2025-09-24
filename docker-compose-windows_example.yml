@@ -61,8 +61,8 @@ services:
     ports:
       - "8888:8888"
     volumes:
-      - jupyter_data:/home/jovyan/
-      - dags_shared:/home/jovyan/dags
+      - ./jupyter_data:/home/jovyan/work
+      - ./dags_shared:/home/jovyan/dags
     environment:
       MLFLOW_TRACKING_URI: http://mlflow-service:5000
       AWS_ENDPOINT_URL: https://storage.yandexcloud.net
