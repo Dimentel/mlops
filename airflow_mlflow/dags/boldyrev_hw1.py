@@ -85,7 +85,7 @@ def collect_data(**context):
     s3_hook = S3Hook(AWS_CONN_ID)
     s3_hook.load_file_obj(
         file_obj=filebuffer,
-        key=f"{BUCKET}/{MY_SURNAME}/wines_dataset.pkl",
+        key=f"{MY_SURNAME}/wines_dataset.pkl",
         bucket_name=BUCKET,
         replace=True,
     )
@@ -103,7 +103,7 @@ def split_and_preprocess(**context):
     # Используем созданный ранее S3 connection
     s3_hook = S3Hook(AWS_CONN_ID)
     BUCKET = Variable.get(S3_BUCKET_ID)
-    file = s3_hook.download_file(key=f"{BUCKET}/{MY_SURNAME}/wines_dataset.pkl", bucket_name=BUCKET)
+    file = s3_hook.download_file(key=f"{MY_SURNAME}/wines_dataset.pkl", bucket_name=BUCKET)
     data = pd.read_pickle(file)
     features = context["ti"].xcom_pull(key="feature_names")
     target = context["ti"].xcom_pull(key="target")
@@ -136,7 +136,7 @@ def split_and_preprocess(**context):
         # Сохраним файл в формате pkl на S3
         s3_hook.load_file_obj(
             file_obj=filebuffer,
-            key=f"{BUCKET}/{MY_SURNAME}/{name}.pkl",
+            key=f"{MY_SURNAME}/{name}.pkl",
             bucket_name=BUCKET,
             replace=True,
         )
@@ -156,13 +156,13 @@ def train_model(**context):
     BUCKET = Variable.get(S3_BUCKET_ID)
     X_train_fitted = pd.read_pickle(
         s3_hook.download_file(
-            key=f"{BUCKET}/{MY_SURNAME}/X_train_fitted.pkl", bucket_name=BUCKET
+            key=f"{MY_SURNAME}/X_train_fitted.pkl", bucket_name=BUCKET
         )
     )
 
     y_train = pd.read_pickle(
         s3_hook.download_file(
-            key=f"{BUCKET}/{MY_SURNAME}/y_train.pkl", bucket_name=BUCKET
+            key=f"{MY_SURNAME}/y_train.pkl", bucket_name=BUCKET
         )
     )
 
@@ -188,7 +188,7 @@ def train_model(**context):
     # Сохраним модель в формате pkl на S3
     s3_hook.load_file_obj(
         file_obj=filebuffer,
-        key=f"{BUCKET}/{MY_SURNAME}/rf_model.pkl",
+        key=f"{MY_SURNAME}/rf_model.pkl",
         bucket_name=BUCKET,
         replace=True,
     )
@@ -208,19 +208,19 @@ def collect_metrics_model(**context):
     BUCKET = Variable.get(S3_BUCKET_ID)
     X_test_fitted = pd.read_pickle(
         s3_hook.download_file(
-            key=f"{BUCKET}/{MY_SURNAME}/X_test_fitted.pkl", bucket_name=BUCKET
+            key=f"{MY_SURNAME}/X_test_fitted.pkl", bucket_name=BUCKET
         )
     )
 
     y_test = pd.read_pickle(
         s3_hook.download_file(
-            key=f"{BUCKET}/{MY_SURNAME}/y_test.pkl", bucket_name=BUCKET
+            key=f"{MY_SURNAME}/y_test.pkl", bucket_name=BUCKET
         )
     )
     # Загрузим модель
     model = pd.read_pickle(
         s3_hook.download_file(
-            key=f"{BUCKET}/{MY_SURNAME}/rf_model.pkl", bucket_name=BUCKET
+            key=f"{MY_SURNAME}/rf_model.pkl", bucket_name=BUCKET
         )
     )
     # Рассчитаем метрики модели
@@ -237,7 +237,7 @@ def collect_metrics_model(**context):
 
     s3_hook.load_file_obj(
         file_obj=filebuffer,
-        key=f"{BUCKET}/{MY_SURNAME}/model_metrics.json",
+        key=f"{MY_SURNAME}/model_metrics.json",
         bucket_name=BUCKET,
         replace=True,
     )
@@ -265,7 +265,7 @@ def collect_metrics_pipeline(**context):
 
     s3_hook.load_file_obj(
         file_obj=filebuffer,
-        key=f"{BUCKET}/{MY_SURNAME}/pipeline_metrics.json",
+        key=f"{MY_SURNAME}/pipeline_metrics.json",
         bucket_name=BUCKET,
         replace=True,
     )
@@ -291,7 +291,7 @@ def cleanup(**context):
 
     # Удаляем каждый файл
     for file_name in files_to_delete:
-        s3_key = f"{BUCKET}/{MY_SURNAME}/{file_name}"
+        s3_key = f"{MY_SURNAME}/{file_name}"
         try:
             # Проверяем существует ли файл перед удалением
             if s3_hook.check_for_key(s3_key, bucket_name=BUCKET):

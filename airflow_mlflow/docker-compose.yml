@@ -44,7 +44,6 @@ x-jupyter-common: &jupyter-common
     AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
     AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     JUPYTER_WORK_DIR: ${JUPYTER_WORK_DIR}
-    # Отключаем аутентификацию
     JUPYTER_TOKEN: ${JUPYTER_TOKEN}
     # Дополнительные настройки
     JUPYTER_ENABLE_LAB: "yes"

@@ -1,0 +1,10 @@
+version: "3.9"
+
+services:
+  model-api:
+    build: .
+    container_name: s3-model-serve
+    env_file: .env
+    ports:
+      - "8090:8080"
+    #restart: unless-stopped
